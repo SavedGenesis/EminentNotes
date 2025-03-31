@@ -2,7 +2,6 @@ import SwiftUI
 
 struct ContentView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    @StateObject private var folderViewModel = FolderViewModel()
     @EnvironmentObject var noteListViewModel: NoteListViewModel
     
     var body: some View {
@@ -10,16 +9,13 @@ struct ContentView: View {
         // On iPhone, use a tab-based navigation for smaller screens
         if horizontalSizeClass == .compact {
             ContentTabView()
-                .environmentObject(folderViewModel)
         } else {
             // On iPad, use a split view
             ContentSplitView()
-                .environmentObject(folderViewModel)
         }
         #else
         // On macOS, always use a split view
         ContentSplitView()
-            .environmentObject(folderViewModel)
         #endif
     }
 }
@@ -27,15 +23,19 @@ struct ContentView: View {
 struct ContentTabView: View {
     @State private var selectedTab = 0
     @EnvironmentObject var noteListViewModel: NoteListViewModel
-    @EnvironmentObject var folderViewModel: FolderViewModel
     @Environment(\.managedObjectContext) private var viewContext
     
     var body: some View {
         TabView(selection: $selectedTab) {
             NavigationStack {
                 NoteListView()
-                    .navigationDestination(for: Note.self) { note in
-                        NoteEditorContainer(note: note)
+                    .navigationDestination(isPresented: Binding(
+                        get: { noteListViewModel.selectedNote != nil },
+                        set: { if !$0 { noteListViewModel.selectedNote = nil } }
+                    )) {
+                        if let note = noteListViewModel.selectedNote {
+                            NoteEditorContainer(note: note)
+                        }
                     }
             }
             .tabItem {
@@ -45,8 +45,13 @@ struct ContentTabView: View {
             
             NavigationStack {
                 FolderView()
-                    .navigationDestination(for: Note.self) { note in
-                        NoteEditorContainer(note: note)
+                    .navigationDestination(isPresented: Binding(
+                        get: { noteListViewModel.selectedNote != nil },
+                        set: { if !$0 { noteListViewModel.selectedNote = nil } }
+                    )) {
+                        if let note = noteListViewModel.selectedNote {
+                            NoteEditorContainer(note: note)
+                        }
                     }
             }
             .tabItem {
@@ -60,7 +65,6 @@ struct ContentTabView: View {
 struct ContentSplitView: View {
     @State private var selectedSidebarItem: String? = "notes"
     @EnvironmentObject var noteListViewModel: NoteListViewModel
-    @EnvironmentObject var folderViewModel: FolderViewModel
     @Environment(\.managedObjectContext) private var viewContext
     
     var body: some View {

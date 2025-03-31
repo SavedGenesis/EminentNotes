@@ -1,12 +1,14 @@
 import SwiftUI
 
 struct FolderView: View {
+    
     @EnvironmentObject var folderViewModel: FolderViewModel
     @EnvironmentObject var noteListViewModel: NoteListViewModel
     @Environment(\.managedObjectContext) private var viewContext
     
     @State private var showingNewFolderSheet = false
     @State private var newFolderName = ""
+    @State private var showingEditor = false
     
     var body: some View {
         VStack(spacing: 0) {

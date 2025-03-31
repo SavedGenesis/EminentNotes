@@ -1,14 +1,15 @@
 import SwiftUI
 
 struct NoteListView: View {
+    
     // Access the Core Data context
     @Environment(\.managedObjectContext) private var viewContext
     
-    // Access the shared view model
     @EnvironmentObject var viewModel: NoteListViewModel
-    
-    // State for the search bar
-    @State private var searchText = ""
+        
+        // State for the search bar
+        @State private var searchText = ""
+        @State private var showingEditor = false
     
     var body: some View {
         List {
