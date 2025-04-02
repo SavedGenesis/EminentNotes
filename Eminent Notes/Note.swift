@@ -10,8 +10,6 @@ public class Note: NSManagedObject, Identifiable {
     @NSManaged public var isArchived: Bool
     @NSManaged public var isPinned: Bool
     
-    public static let entityName = "Note"
-    
     // Relationships
     @NSManaged public var tags: NSSet?
     @NSManaged public var folder: Folder?
@@ -21,12 +19,23 @@ public class Note: NSManagedObject, Identifiable {
         let set = tags as? Set<Tag> ?? []
         return set.sorted { $0.name ?? "" < $1.name ?? "" }
     }
+    
+    // Override awakeFromInsert to set default values
+    public override func awakeFromInsert() {
+        super.awakeFromInsert()
+        creationDate = Date()
+        modificationDate = Date()
+        isArchived = false
+        isPinned = false
+        title = "New Note"
+        content = ""
+    }
 }
 
 // Extension for fetching Notes
 extension Note {
     static func fetchRequest() -> NSFetchRequest<Note> {
-        return NSFetchRequest<Note>(entityName: Note.entityName)
+        return NSFetchRequest<Note>(entityName: "Note")
     }
     
     static func fetchRecent(context: NSManagedObjectContext, limit: Int = 10) -> [Note] {
