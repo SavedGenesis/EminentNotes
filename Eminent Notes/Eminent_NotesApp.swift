@@ -11,7 +11,7 @@ struct Eminent_NotesApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            MainContentView()
                 .environment(\.managedObjectContext, persistenceController.container.viewContext)
                 .environmentObject(noteListViewModel)
                 .environmentObject(folderViewModel)

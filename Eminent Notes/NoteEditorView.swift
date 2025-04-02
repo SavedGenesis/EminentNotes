@@ -12,6 +12,7 @@ struct NoteEditorView: View {
     
     @State private var showingFormatting = false
     @State private var selectedTextRange: NSRange?
+    @State private var showingDiscardAlert = false
     
     var body: some View {
         VStack(spacing: 0) {
@@ -44,8 +45,32 @@ struct NoteEditorView: View {
                         self.focusField = .content
                     }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .navigationTitle(viewModel.title.isEmpty ? "New Note" : viewModel.title)
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
         .toolbar {
+            // Pin toggle button
+            ToolbarItem(placement: toolbarPlacement()) {
+                Button {
+                    viewModel.togglePin()
+                } label: {
+                    Image(systemName: viewModel.isPinned ? "pin.fill" : "pin")
+                }
+            }
+            
+            // Formatting toggle button
+            ToolbarItem(placement: toolbarPlacement()) {
+                Button {
+                    showingFormatting.toggle()
+                } label: {
+                    Image(systemName: "textformat")
+                }
+            }
+            
+            // Save button
             ToolbarItem(placement: toolbarPlacement()) {
                 Button {
                     viewModel.saveNote()
@@ -55,26 +80,33 @@ struct NoteEditorView: View {
                 }
             }
             
-            ToolbarItem(placement: toolbarPlacement()) {
-                Button {
-                    showingFormatting.toggle()
-                } label: {
-                    Image(systemName: "textformat")
-                }
-            }
-            
-            ToolbarItem(placement: toolbarPlacement()) {
-                Button {
-                    viewModel.togglePin()
-                } label: {
-                    Image(systemName: viewModel.isPinned ? "pin.fill" : "pin")
+            // Discard button (only shown when there are unsaved changes)
+            if viewModel.hasUnsavedChanges {
+                ToolbarItem(placement: leadingToolbarPlacement()) {
+                    Button {
+                        showingDiscardAlert = true
+                    } label: {
+                        Text("Discard")
+                    }
+                    .foregroundColor(.red)
                 }
             }
         }
-        .navigationTitle("Edit Note")
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
+        .alert("Discard Changes?", isPresented: $showingDiscardAlert) {
+            Button("Cancel", role: .cancel) { }
+            Button("Discard", role: .destructive) {
+                viewModel.discardChanges()
+                dismiss()
+            }
+        } message: {
+            Text("Are you sure you want to discard your unsaved changes?")
+        }
+        .onChange(of: viewModel.title) { oldValue, newValue in
+            if !newValue.isEmpty {
+                // Update navigation title when title changes
+                // (This is not needed for SwiftUI, but just to illustrate the concept)
+            }
+        }
     }
     
     // Helper method to determine proper toolbar placement
@@ -83,6 +115,15 @@ struct NoteEditorView: View {
         return .automatic
         #else
         return .navigationBarTrailing
+        #endif
+    }
+    
+    // Helper method for leading toolbar placement
+    private func leadingToolbarPlacement() -> ToolbarItemPlacement {
+        #if os(macOS)
+        return .cancellationAction
+        #else
+        return .navigationBarLeading
         #endif
     }
 }
@@ -190,5 +231,11 @@ struct FormatButton: View {
                 .font(.system(size: 16))
                 .frame(width: 30, height: 30)
         }
+    }
+}
+
+#Preview {
+    NavigationView {
+        NoteEditorView(viewModel: NoteEditorViewModel())
     }
 }

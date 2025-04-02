@@ -1,27 +1,25 @@
 import SwiftUI
 
-struct MainContentView: View {
+struct ContentView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.managedObjectContext) private var viewContext
     @EnvironmentObject var noteListViewModel: NoteListViewModel
     @EnvironmentObject var folderViewModel: FolderViewModel
     
     var body: some View {
-        ZStack {
-            #if os(iOS)
-            // On iPhone, use a tab-based navigation for smaller screens
-            if horizontalSizeClass == .compact {
-                EminentNotesTabView()
-            } else {
-                // On iPad, use a split view
-                MainSplitView()
-            }
-            #else
-            // On macOS, always use a split view
-            MainSplitView()
-            #endif
+        #if os(iOS)
+        // On iPhone, use a tab-based navigation for smaller screens
+        if horizontalSizeClass == .compact {
+            ContentTabView()
+        } else {
+            // On iPad, use a split view
+            ContentSplitView()
         }
-        .task {
+        #else
+        // On macOS, always use a split view
+        ContentSplitView()
+        #endif
+        .onAppear {
             // Initialize viewModels with the proper context
             noteListViewModel.setContext(viewContext)
             folderViewModel.setContext(viewContext)
@@ -29,17 +27,23 @@ struct MainContentView: View {
     }
 }
 
-struct EminentNotesTabView: View {
+struct ContentTabView: View {
     @State private var selectedTab = 0
     @EnvironmentObject var noteListViewModel: NoteListViewModel
     @EnvironmentObject var folderViewModel: FolderViewModel
+    @State private var showNewNote = false
     
     var body: some View {
         TabView(selection: $selectedTab) {
             NavigationStack {
                 NoteListView()
                     .navigationDestination(for: Note.self) { note in
-                        EditorContainerView(note: note)
+                        NoteEditorContainer(note: note)
+                    }
+                    .navigationDestination(isPresented: $showNewNote) {
+                        if let newNote = noteListViewModel.selectedNote {
+                            NoteEditorContainer(note: newNote)
+                        }
                     }
             }
             .tabItem {
@@ -50,7 +54,12 @@ struct EminentNotesTabView: View {
             NavigationStack {
                 FolderView()
                     .navigationDestination(for: Note.self) { note in
-                        EditorContainerView(note: note)
+                        NoteEditorContainer(note: note)
+                    }
+                    .navigationDestination(isPresented: $showNewNote) {
+                        if let newNote = noteListViewModel.selectedNote {
+                            NoteEditorContainer(note: newNote)
+                        }
                     }
             }
             .tabItem {
@@ -58,10 +67,15 @@ struct EminentNotesTabView: View {
             }
             .tag(1)
         }
+        .onChange(of: noteListViewModel.selectedNote) { oldValue, newValue in
+            if newValue != nil && oldValue == nil {
+                showNewNote = true
+            }
+        }
     }
 }
 
-struct MainSplitView: View {
+struct ContentSplitView: View {
     @State private var selectedSidebarItem: String? = "notes"
     @EnvironmentObject var noteListViewModel: NoteListViewModel
     @EnvironmentObject var folderViewModel: FolderViewModel
@@ -83,17 +97,17 @@ struct MainSplitView: View {
                 FolderView()
             }
         } detail: {
-            NoteDetailView()
+            DetailView()
         }
     }
 }
 
-struct NoteDetailView: View {
+struct DetailView: View {
     @EnvironmentObject var noteListViewModel: NoteListViewModel
     
     var body: some View {
         if let note = noteListViewModel.selectedNote {
-            EditorContainerView(note: note)
+            NoteEditorContainer(note: note)
         } else {
             ContentUnavailableView {
                 Label("No Note Selected", systemImage: "note.text")
@@ -111,7 +125,7 @@ struct NoteDetailView: View {
     }
 }
 
-struct EditorContainerView: View {
+struct NoteEditorContainer: View {
     @EnvironmentObject var noteListViewModel: NoteListViewModel
     @Environment(\.managedObjectContext) private var viewContext
     @Environment(\.dismiss) private var dismiss
@@ -120,10 +134,16 @@ struct EditorContainerView: View {
     
     var body: some View {
         NoteEditorView(viewModel: viewModel)
-            .task {
+            .onAppear {
                 viewModel.configure(note: note, context: viewContext) {
                     // When the note is saved, update the list
                     noteListViewModel.fetchNotes()
+                }
+            }
+            .onDisappear {
+                if viewModel.hasUnsavedChanges {
+                    // If there are unsaved changes, save the note when leaving
+                    viewModel.saveNote()
                 }
             }
             #if os(iOS)
@@ -140,7 +160,7 @@ struct EditorContainerView: View {
 }
 
 #Preview {
-    MainContentView()
+    ContentView()
         .environment(\.managedObjectContext, PersistenceController.preview.container.viewContext)
         .environmentObject(NoteListViewModel())
         .environmentObject(FolderViewModel())

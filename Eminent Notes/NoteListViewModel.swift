@@ -10,6 +10,9 @@ class NoteListViewModel: ObservableObject {
     @Published var searchText: String = ""
     @Published var isSearching: Bool = false
     
+    // Track whether a save is in progress
+    @Published var isSaving: Bool = false
+    
     private var cancellables = Set<AnyCancellable>()
     private var context: NSManagedObjectContext?
     
@@ -31,7 +34,7 @@ class NoteListViewModel: ObservableObject {
     }
     
     // Fetch notes from Core Data
-    func fetchNotes() {
+    func fetchNotes(forFolder folder: Folder? = nil) {
         guard let context = context else { return }
         
         let request = Note.fetchRequest()
@@ -41,6 +44,11 @@ class NoteListViewModel: ObservableObject {
             request.predicate = NSPredicate(
                 format: "title CONTAINS[cd] %@ OR content CONTAINS[cd] %@", 
                 searchText, searchText
+            )
+        } else if let folder = folder {
+            request.predicate = NSPredicate(
+                format: "folder == %@ AND isArchived == %@", 
+                folder, NSNumber(value: false)
             )
         } else {
             request.predicate = NSPredicate(format: "isArchived == %@", NSNumber(value: false))
@@ -56,43 +64,13 @@ class NoteListViewModel: ObservableObject {
         }
     }
     
+    // Create a new note and select it
+    func createAndSelectNewNote(folder: Folder? = nil) {
+        guard let newNote = createNote(folder: folder) else { return }
+        self.selectedNote = newNote
+    }
+    
     // Create a new note
-    func createNote() -> Note? {
-        guard let context = context else { return nil }
-        
-        let newNote = Note(context: context)
-        newNote.title = "New Note"
-        newNote.content = ""
-        newNote.creationDate = Date()
-        newNote.modificationDate = Date()
-        newNote.isArchived = false
-        newNote.isPinned = false
-        
-        do {
-            try context.save()
-            fetchNotes() // Refresh the list
-            return newNote
-        } catch {
-            print("Error creating note: \(error)")
-            return nil
-        }
-    }
-    
-    // Delete a note
-    func deleteNote(_ note: Note) {
-        guard let context = context else { return }
-        
-        context.delete(note)
-        
-        do {
-            try context.save()
-            fetchNotes() // Refresh the list
-        } catch {
-            print("Error deleting note: \(error)")
-        }
-    }
-    
-    // NoteListViewModel.swift - Add this method
     func createNote(folder: Folder? = nil) -> Note? {
         guard let context = context else { return nil }
         
@@ -112,6 +90,46 @@ class NoteListViewModel: ObservableObject {
         } catch {
             print("Error creating note: \(error)")
             return nil
+        }
+    }
+    
+    // Delete a note
+    func deleteNote(_ note: Note) {
+        guard let context = context else { return }
+        
+        // If we're deleting the selected note, clear the selection
+        if selectedNote?.objectID == note.objectID {
+            selectedNote = nil
+        }
+        
+        context.delete(note)
+        
+        do {
+            try context.save()
+            fetchNotes() // Refresh the list
+        } catch {
+            print("Error deleting note: \(error)")
+        }
+    }
+    
+    // Save a note
+    func saveNote(_ note: Note, title: String, content: String, isPinned: Bool) {
+        guard let context = context else { return }
+        
+        isSaving = true
+        
+        note.title = title
+        note.content = content
+        note.modificationDate = Date()
+        note.isPinned = isPinned
+        
+        do {
+            try context.save()
+            fetchNotes() // Refresh the list
+            isSaving = false
+        } catch {
+            print("Error saving note: \(error)")
+            isSaving = false
         }
     }
 }

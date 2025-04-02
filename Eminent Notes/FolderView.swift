@@ -1,14 +1,14 @@
 import SwiftUI
 
 struct FolderView: View {
-    
     @EnvironmentObject var folderViewModel: FolderViewModel
     @EnvironmentObject var noteListViewModel: NoteListViewModel
     @Environment(\.managedObjectContext) private var viewContext
     
     @State private var showingNewFolderSheet = false
     @State private var newFolderName = ""
-    @State private var showingEditor = false
+    @State private var renamingFolder: Folder? = nil
+    @State private var renameFolderName = ""
     
     var body: some View {
         VStack(spacing: 0) {
@@ -22,7 +22,9 @@ struct FolderView: View {
                 folderViewModel: folderViewModel,
                 noteListViewModel: noteListViewModel,
                 showingNewFolderSheet: $showingNewFolderSheet,
-                newFolderName: $newFolderName
+                newFolderName: $newFolderName,
+                renamingFolder: $renamingFolder,
+                renameFolderName: $renameFolderName
             )
         }
         .navigationTitle(folderViewModel.currentFolder?.name ?? "Folders")
@@ -37,10 +39,7 @@ struct FolderView: View {
             
             ToolbarItem(placement: toolbarPlacement()) {
                 Button {
-                    let newNote = noteListViewModel.createNote(folder: folderViewModel.currentFolder)
-                    if let note = newNote {
-                        noteListViewModel.selectedNote = note
-                    }
+                    noteListViewModel.createAndSelectNewNote(folder: folderViewModel.currentFolder)
                 } label: {
                     Label("New Note", systemImage: "square.and.pencil")
                 }
@@ -53,8 +52,20 @@ struct FolderView: View {
                 newFolderName: $newFolderName
             )
         }
+        .sheet(item: $renamingFolder) { folder in
+            RenameFolderSheet(
+                folderViewModel: folderViewModel,
+                folder: folder,
+                folderName: $renameFolderName
+            )
+        }
         .onAppear {
             folderViewModel.setContext(viewContext)
+            
+            // If we're viewing a specific folder, fetch notes for that folder
+            if let currentFolder = folderViewModel.currentFolder {
+                noteListViewModel.fetchNotes(forFolder: currentFolder)
+            }
         }
     }
     
@@ -107,6 +118,8 @@ struct FolderContentList: View {
     @ObservedObject var noteListViewModel: NoteListViewModel
     @Binding var showingNewFolderSheet: Bool
     @Binding var newFolderName: String
+    @Binding var renamingFolder: Folder?
+    @Binding var renameFolderName: String
     
     var body: some View {
         List {
@@ -114,7 +127,10 @@ struct FolderContentList: View {
             Section(header: Text("Folders")) {
                 FolderListSection(
                     folderViewModel: folderViewModel,
-                    newFolderName: $newFolderName
+                    showingNewFolderSheet: $showingNewFolderSheet,
+                    newFolderName: $newFolderName,
+                    renamingFolder: $renamingFolder,
+                    renameFolderName: $renameFolderName
                 )
             }
             
@@ -136,7 +152,10 @@ struct FolderContentList: View {
 
 struct FolderListSection: View {
     @ObservedObject var folderViewModel: FolderViewModel
+    @Binding var showingNewFolderSheet: Bool
     @Binding var newFolderName: String
+    @Binding var renamingFolder: Folder?
+    @Binding var renameFolderName: String
     
     var body: some View {
         let folders = folderViewModel.currentFolder?.childrenArray ?? folderViewModel.rootFolders
@@ -164,10 +183,10 @@ struct FolderListSection: View {
                     }
                 }
                 .contextMenu {
-                    Button("Rename", action: {
-                        newFolderName = folder.name ?? ""
-                        // Add rename functionality
-                    })
+                    Button("Rename") {
+                        renameFolderName = folder.name ?? ""
+                        renamingFolder = folder
+                    }
                     
                     Button("Delete", role: .destructive) {
                         folderViewModel.deleteFolder(folder)
@@ -196,10 +215,9 @@ struct NotesListSection: View {
                     .font(.caption)
             } else {
                 ForEach(currentFolder.noteArray) { note in
-                    NoteRow(note: note)
-                        .onTapGesture {
-                            noteListViewModel.selectedNote = note
-                        }
+                    NavigationLink(value: note) {
+                        NoteRow(note: note)
+                    }
                 }
                 .onDelete { indexSet in
                     let notesToDelete = indexSet.map { currentFolder.noteArray[$0] }
@@ -209,9 +227,15 @@ struct NotesListSection: View {
                 }
             }
         } else {
-            Text("Select a folder to view notes")
-                .foregroundColor(.secondary)
-                .font(.caption)
+            if folderViewModel.rootFolders.isEmpty {
+                Text("Create a folder to organize your notes")
+                    .foregroundColor(.secondary)
+                    .font(.caption)
+            } else {
+                Text("Select a folder to view notes")
+                    .foregroundColor(.secondary)
+                    .font(.caption)
+            }
         }
     }
 }
@@ -249,6 +273,60 @@ struct NewFolderSheet: View {
                         }
                     }
                     .disabled(newFolderName.isEmpty)
+                }
+            }
+        }
+    }
+    
+    private func leadingToolbarPlacement() -> ToolbarItemPlacement {
+        #if os(macOS)
+        return .cancellationAction
+        #else
+        return .navigationBarLeading
+        #endif
+    }
+    
+    private func trailingToolbarPlacement() -> ToolbarItemPlacement {
+        #if os(macOS)
+        return .confirmationAction
+        #else
+        return .navigationBarTrailing
+        #endif
+    }
+}
+
+struct RenameFolderSheet: View {
+    @ObservedObject var folderViewModel: FolderViewModel
+    @Environment(\.dismiss) private var dismiss
+    let folder: Folder
+    @Binding var folderName: String
+    
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section(header: Text("Rename Folder")) {
+                    TextField("Folder Name", text: $folderName)
+                }
+            }
+            .navigationTitle("Rename Folder")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: leadingToolbarPlacement()) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+                
+                ToolbarItem(placement: trailingToolbarPlacement()) {
+                    Button("Save") {
+                        if !folderName.isEmpty {
+                            folderViewModel.renameFolder(folder, newName: folderName)
+                            dismiss()
+                        }
+                    }
+                    .disabled(folderName.isEmpty)
                 }
             }
         }

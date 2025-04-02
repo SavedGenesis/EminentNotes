@@ -8,8 +8,10 @@ class FolderViewModel: ObservableObject {
     @Published var rootFolders: [Folder] = []
     @Published var currentFolder: Folder?
     @Published var folderPath: [Folder] = []
+    @Published var isLoading: Bool = false
     
     private var context: NSManagedObjectContext?
+    private var cancellables = Set<AnyCancellable>()
     
     func setContext(_ context: NSManagedObjectContext) {
         self.context = context
@@ -18,7 +20,23 @@ class FolderViewModel: ObservableObject {
     
     func fetchRootFolders() {
         guard let context = context else { return }
-        rootFolders = Folder.fetchRootFolders(context: context)
+        isLoading = true
+        
+        // Use a background task for better UI responsiveness
+        Task {
+            let folders = await withCheckedContinuation { continuation in
+                context.perform {
+                    let result = Folder.fetchRootFolders(context: context)
+                    continuation.resume(returning: result)
+                }
+            }
+            
+            // Update UI on main thread
+            await MainActor.run {
+                self.rootFolders = folders
+                self.isLoading = false
+            }
+        }
     }
     
     func createFolder(name: String, parent: Folder? = nil) -> Folder? {
@@ -37,7 +55,18 @@ class FolderViewModel: ObservableObject {
         
         do {
             try context.save()
-            fetchRootFolders()
+            
+            // If the parent of the new folder is the current folder, refresh the list
+            if parent?.objectID == currentFolder?.objectID {
+                // We need to refresh the children of the current folder
+                if let current = currentFolder {
+                    context.refresh(current, mergeChanges: true)
+                }
+            } else if parent == nil {
+                // If we're adding a root folder, refresh the root folders
+                fetchRootFolders()
+            }
+            
             return newFolder
         } catch {
             print("Error creating folder: \(error)")
@@ -66,7 +95,11 @@ class FolderViewModel: ObservableObject {
         
         do {
             try context.save()
-            fetchRootFolders()
+            
+            // If we're deleting a root folder, refresh the root folders
+            if folder.parent == nil {
+                fetchRootFolders()
+            }
             
             // Update current folder if it was deleted
             if currentFolder == folder {
@@ -75,6 +108,34 @@ class FolderViewModel: ObservableObject {
             }
         } catch {
             print("Error deleting folder: \(error)")
+        }
+    }
+    
+    func renameFolder(_ folder: Folder, newName: String) {
+        guard let context = context else { return }
+        
+        // Update the folder name
+        folder.name = newName
+        
+        do {
+            try context.save()
+            
+            // Refresh the UI
+            if folder.parent == nil {
+                fetchRootFolders()
+            } else {
+                // Refresh the parent's children
+                if let parent = folder.parent {
+                    context.refresh(parent, mergeChanges: true)
+                }
+            }
+            
+            // If this is the current folder, update the folder path
+            if currentFolder?.objectID == folder.objectID {
+                updateFolderPath()
+            }
+        } catch {
+            print("Error renaming folder: \(error)")
         }
     }
     
@@ -99,5 +160,19 @@ class FolderViewModel: ObservableObject {
         }
         
         folderPath = path
+    }
+    
+    // Helper method to get all folders (flattened)
+    func getAllFolders() -> [Folder] {
+        guard let context = context else { return [] }
+        
+        do {
+            let request = Folder.fetchRequest()
+            request.sortDescriptors = [NSSortDescriptor(keyPath: \Folder.name, ascending: true)]
+            return try context.fetch(request)
+        } catch {
+            print("Error fetching all folders: \(error)")
+            return []
+        }
     }
 }
